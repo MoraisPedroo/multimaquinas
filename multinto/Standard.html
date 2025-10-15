@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>MapaNto - Padrão</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Evitar cache pesado durante desenvolvimento -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
+  <link rel="icon" type="image/png" href="../homolnto/pardinilogo.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="../homolnto/pardinilogo.png">
+  <meta name="theme-color" content="#F3F0EC">
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+
+    /* pontos da impressora: usamos variável --point-color para controlar a cor do halo */
+    .printer-point { 
+      position: absolute; width: 24px; height: 24px; border-radius: 9999px; cursor: pointer;
+      transition: all 0.25s ease; display:flex; align-items:center; justify-content:center;
+      transform:translate(-50%,-50%); z-index:20;
+      --point-color: #3b82f6; /* fallback */
+    }
+    .printer-point::before { 
+      content:''; position:absolute; width:100%; height:100%; border-radius:9999px;
+      animation:pulse 2s infinite; background-color: var(--point-color); opacity:0.75; 
+    }
+    .printer-point:hover { transform: translate(-50%, -50%) scale(1.25); z-index:25; }
+    .printer-point-icon{ width:14px; height:14px; color:white; z-index:30; }
+    @keyframes pulse { 0%{transform:scale(0.95);}70%{transform:scale(1);}100%{transform:scale(0.95);} }
+    .highlighted { transform: translate(-50%, -50%) scale(1.6) !important; z-index:60 !important; transition: transform .2s ease; }
+    .highlighted::before { animation: highlight-pulse 1s infinite !important; background-color: rgba(59,130,246,0.95) !important; }
+    @keyframes highlight-pulse { 0%{box-shadow:0 0 0 0 rgba(59,130,246,0.8);}70%{box-shadow:0 0 0 18px rgba(59,130,246,0);}100%{box-shadow:0 0 0 0 rgba(59,130,246,0);} }
+
+    .icon-hitbox { display:inline-flex; align-items:center; justify-content:center; padding:8px; border-radius:9999px; cursor:pointer; -webkit-tap-highlight-color: transparent; }
+    .modal-backdrop { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); z-index:40; display:flex; align-items:center; justify-content:center; }
+    .modal-content { z-index:50; }
+    #map-container.add-mode { cursor:crosshair; }
+    .toast { position: fixed; top:20px; right:20px; background:#3D405B; color:white; padding:12px 20px; border-radius:8px; z-index:100; opacity:0; transform: translateY(-20px); transition: opacity .5s, transform .5s; }
+    .toast.show { opacity:1; transform:translateY(0); }
+    #map-tooltip { position:absolute; background:#3D405B; color:white; padding:8px 12px; border-radius:6px; font-size:.875rem; line-height:1.4; opacity:0; visibility:hidden; transition:opacity .15s, visibility .15s; pointer-events:none; z-index:60; transform: translate(-50%,-125%); white-space:nowrap; }
+    #map-tooltip.show { opacity:1; visibility:visible; }
+
+    /*  z-index reduzido para não cobrir o modal */
+    .focus-label { position:absolute; transform: translate(-50%,-120%); background: rgba(255,255,255,0.95); border-radius:6px; padding:6px 10px; box-shadow: 0 6px 18px rgba(0,0,0,0.15); z-index:45; font-weight:600; white-space:nowrap; }
+
+    #map-inner { position: relative; width: 100%; height: 100%; transform-origin: 0 0; transition: transform 250ms cubic-bezier(.2,.9,.3,1); }
+
+    /* busca expandida */
+    #search-input { transition: width 300ms ease-in-out; width: 0; padding-left: 0; padding-right: 0; }
+    #search-container.expanded #search-input { width: 250px; padding-left: 1rem; padding-right: 0.5rem; }
+    #search-results { position: absolute; top: 110%; right: 0; width: 300px; background: white; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); z-index: 100; max-height: 300px; overflow-y: auto; display: none; }
+    .result-item:hover, .result-item:focus { background-color: #f0f0f0; outline: none; }
+
+    /* Estilos para status na modal */
+    .square { width: 16px; height: 16px; border-radius: 3px; display: inline-block; }
+    .status-row { display: flex; align-items: center; gap: 10px; }
+    .status-text { font-weight: 700; font-size: 18px; }
+  </style>
+</head>
+<body class="bg-[#F3F0EC] text-[#3D405B]">
+  <div id="side-actions" class="fixed top-4 right-4 z-30 flex flex-col items-end gap-3">
+    <div id="search-container" class="relative flex items-center justify-end bg-white rounded-full shadow-md" aria-expanded="false" aria-controls="search-results">
+      <form id="search-form" class="flex items-center" role="search">
+        <input id="search-input" type="text" placeholder="Buscar por Nome ou SELB..." class="h-12 border-none rounded-l-full focus:ring-0 bg-transparent" aria-label="Buscar impressora">
+        <div id="search-hitbox" class="icon-hitbox" title="Buscar">
+            <button type="button" id="search-icon-btn" class="w-10 h-10 flex items-center justify-center text-gray-600" aria-label="Abrir pesquisa">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            </button>
+        </div>
+      </form>
+      <div id="search-results" aria-hidden="true" role="listbox"></div>
+    </div>
+    <div id="status-all-hitbox" class="icon-hitbox bg-white rounded-full shadow-md" title="Ver status de todas">
+      <button id="status-all-btn" class="w-12 h-12 bg-blue-500 text-white rounded-full shadow-md hover:bg-blue-600 transition-colors flex items-center justify-center" aria-label="Ver status de todas as impressoras">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="container mx-auto p-4 md:p-8">
+    <header class="text-center mb-6">
+        <h1 class="text-3xl md:text-4xl font-bold">Mapeamento de Impressoras Térmicas - Padrão</h1><h5>By Pedro Assis e Diego Pereira</h5>
+        <select id="floor-select" class="mt-4 p-2 border rounded" aria-label="Selecionar andar">
+          <option value="1">Andar 1</option>
+          <option value="2">Andar 2</option>
+        </select>
+    </header>
+    <main>
+      <div id="map-container" 
+           class="relative mx-auto shadow-2xl rounded-lg overflow-hidden border-4 border-transparent transition-colors duration-300" 
+           style="width: min(3840px, 92vw); aspect-ratio: 3840 / 2715;">
+        <div id="map-inner" class="relative w-full h-full">
+          <img id="map-image" src="plantanto.jpg" alt="Planta do escritório" 
+               class="w-full h-full object-contain bg-white" 
+               onerror="this.onerror=null;this.src='https://placehold.co/3840x2715/ffffff/cccccc?text=Planta+Indispon%C3%ADvel';">
+        </div>
+        <div id="map-tooltip" role="status" aria-live="polite"></div>
+      </div>
+    </main>
+  </div>
+
+  <div id="details-modal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-content bg-white w-11/12 max-w-md mx-auto rounded-lg shadow-xl p-6 relative" role="dialog" aria-modal="true">
+      <button class="close-modal-btn absolute top-4 right-4 text-gray-500 hover:text-gray-800" aria-label="Fechar">✕</button>
+      <h2 id="modal-title" class="text-2xl font-bold mb-4"></h2>
+      <div class="space-y-3 text-gray-700">
+        <p><strong>Departamento:</strong> <span id="modal-department"></span></p>
+        <p><strong>SELB:</strong> <span id="modal-selb" class="font-mono bg-gray-100 px-2 py-1 rounded"></span></p>
+        <p><strong>Endereço IP:</strong> <span id="modal-ip" class="font-mono bg-gray-100 px-2 py-1 rounded"></span></p>
+        <p><strong>Observações:</strong> <div id="modal-observations" class="bg-gray-100 px-2 py-1 rounded mt-1 p-2 text-sm whitespace-pre-wrap"></div></p>
+      </div>
+      <div id="status-display" class="mt-4 p-4 bg-gray-50 rounded-lg hidden">
+        <div class="status-row">
+          <span id="status-sq" class="square" style="background:#ccc"></span>
+          <div id="status-text" class="status-text">--</div>
+        </div>
+        <div id="status-message" class="message mt-2 text-sm"></div>
+      </div>
+      <div class="mt-6 space-y-2">
+        <a id="modal-link" href="#" target="_blank" rel="noopener noreferrer" class="block text-center px-4 py-3 bg-[#E07A5F] text-white rounded-lg hover:bg-opacity-90 transition-colors">Acessar IP</a>
+        <div class="grid grid-cols-3 gap-2">
+          <button id="check-status-btn" class="px-2 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm">Status</button>
+          <button id="calibrate-btn" class="px-2 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">Calibrar</button>
+          <button id="head-test-btn" class="px-2 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-sm">Teste Cabeça</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="all-status-modal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-content bg-white w-11/12 max-w-lg mx-auto rounded-lg shadow-xl p-6 relative overflow-auto max-h-96">
+      <button class="close-modal-btn absolute top-4 right-4 text-gray-500 hover:text-gray-800" aria-label="Fechar">✕</button>
+      <h2 class="text-2xl font-bold mb-4">Status de Todas as Impressoras</h2>
+      <div id="all-status-list" class="space-y-4"></div>
+    </div>
+  </div>
+
+  <div id="toast-notification" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Carrega os dados das impressoras primeiro -->
+  <script src="printers-data.js"></script>
+  <!-- Carrega o script principal -->
+  <script src="app-standard.js"></script>
+</body>
+</html>

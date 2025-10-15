@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>MapaNto - Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Evitar cache pesado durante desenvolvimento -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
+  <!-- FAVICON: coloque seu arquivo aqui com nome favicon.png na mesma pasta -->
+  <link rel="icon" type="image/png" href="../MapaNto/pardinilogo.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="../MapaNto/pardinilogo.png">
+  <meta name="theme-color" content="#F3F0EC">
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+
+    /* pontos da impressora: usamos variável --point-color para controlar a cor do halo */
+    .printer-point { 
+      position: absolute; width: 24px; height: 24px; border-radius: 9999px; cursor: pointer;
+      transition: all 0.25s ease; display:flex; align-items:center; justify-content:center;
+      transform:translate(-50%,-50%); z-index:20;
+      --point-color: #3b82f6; /* fallback */
+    }
+    .printer-point::before { 
+      content:''; position:absolute; width:100%; height:100%; border-radius:9999px;
+      animation:pulse 2s infinite; background-color: var(--point-color); opacity:0.75; 
+    }
+    .printer-point:hover { transform: translate(-50%, -50%) scale(1.25); z-index:25; }
+    .printer-point-icon{ width:14px; height:14px; color:white; z-index:30; }
+    @keyframes pulse { 0%{transform:scale(0.95);}70%{transform:scale(1);}100%{transform:scale(0.95);} }
+    .highlighted { transform: translate(-50%, -50%) scale(1.6) !important; z-index:60 !important; transition: transform .2s ease; }
+    .highlighted::before { animation: highlight-pulse 1s infinite !important; background-color: rgba(59,130,246,0.95) !important; }
+    @keyframes highlight-pulse { 0%{box-shadow:0 0 0 0 rgba(59,130,246,0.8);}70%{box-shadow:0 0 0 18px rgba(59,130,246,0);}100%{box-shadow:0 0 0 0 rgba(59,130,246,0);} }
+
+    .icon-hitbox { display:inline-flex; align-items:center; justify-content:center; padding:8px; border-radius:9999px; cursor:pointer; -webkit-tap-highlight-color: transparent; }
+    .modal-backdrop { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); z-index:40; display:flex; align-items:center; justify-content:center; }
+    .modal-content { z-index:50; }
+    #map-container.add-mode { cursor:crosshair; }
+    .toast { position: fixed; top:20px; right:20px; background:#3D405B; color:white; padding:12px 20px; border-radius:8px; z-index:100; opacity:0; transform: translateY(-20px); transition: opacity .5s, transform .5s; }
+    .toast.show { opacity:1; transform:translateY(0); }
+    #map-tooltip { position:absolute; background:#3D405B; color:white; padding:8px 12px; border-radius:6px; font-size:.875rem; line-height:1.4; opacity:0; visibility:hidden; transition:opacity .15s, visibility .15s; pointer-events:none; z-index:60; transform: translate(-50%,-125%); white-space:nowrap; }
+    #map-tooltip.show { opacity:1; visibility:visible; }
+
+    /* CORREÇÃO AQUI: z-index reduzido para não cobrir o modal */
+    .focus-label { position:absolute; transform: translate(-50%,-120%); background: rgba(255,255,255,0.95); border-radius:6px; padding:6px 10px; box-shadow: 0 6px 18px rgba(0,0,0,0.15); z-index:45; font-weight:600; white-space:nowrap; }
+
+    #map-inner { position: relative; width: 100%; height: 100%; transform-origin: 0 0; transition: transform 250ms cubic-bezier(.2,.9,.3,1); }
+
+    /* busca expandida */
+    #search-input { transition: width 300ms ease-in-out; width: 0; padding-left: 0; padding-right: 0; }
+    #search-container.expanded #search-input { width: 250px; padding-left: 1rem; padding-right: 0.5rem; }
+    #search-results { position: absolute; top: 110%; right: 0; width: 300px; background: white; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); z-index: 100; max-height: 300px; overflow-y: auto; display: none; }
+    .result-item:hover, .result-item:focus { background-color: #f0f0f0; outline: none; }
+  </style>
+</head>
+<body class="bg-[#F3F0EC] text-[#3D405B]">
+  <div id="side-actions" class="fixed top-4 right-4 z-30 flex flex-col items-end gap-3">
+    <div id="search-container" class="relative flex items-center justify-end bg-white rounded-full shadow-md" aria-expanded="false" aria-controls="search-results">
+      <form id="search-form" class="flex items-center" role="search">
+        <input id="search-input" type="text" placeholder="Buscar por Nome ou SELB..." class="h-12 border-none rounded-l-full focus:ring-0 bg-transparent" aria-label="Buscar impressora">
+        <div id="search-hitbox" class="icon-hitbox" title="Buscar">
+            <button type="button" id="search-icon-btn" class="w-10 h-10 flex items-center justify-center text-gray-600" aria-label="Abrir pesquisa">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            </button>
+        </div>
+      </form>
+      <div id="search-results" aria-hidden="true" role="listbox"></div>
+    </div>
+    <div id="add-hitbox" class="icon-hitbox bg-white rounded-full shadow-md" title="Adicionar impressora">
+      <button id="add-printer-btn" class="w-12 h-12 bg-[#81B29A] text-white rounded-full shadow-md hover:bg-[#6a947e] transition-colors text-2xl font-bold flex items-center justify-center" aria-pressed="false">+</button>
+    </div>
+  </div>
+
+  <div class="container mx-auto p-4 md:p-8">
+    <header class="text-center mb-6">
+        <h1 class="text-3xl md:text-4xl font-bold">Mapeamento de Impressoras Térmicas - Admin</h1><h5>By Pedro Assis e Diego Pereira</h5>
+        <select id="floor-select" class="mt-4 p-2 border rounded" aria-label="Selecionar andar">
+          <option value="1">Andar 1</option>
+          <option value="2">Andar 2</option>
+        </select>
+    </header>
+    <main>
+      <div id="map-container" 
+           class="relative mx-auto shadow-2xl rounded-lg overflow-hidden border-4 border-transparent transition-colors duration-300" 
+           style="width: min(3840px, 92vw); aspect-ratio: 3840 / 2715;">
+        <div id="map-inner" class="relative w-full h-full">
+          <img id="map-image" src="plantanto.jpg" alt="Planta do escritório" 
+               class="w-full h-full object-contain bg-white" 
+               onerror="this.onerror=null;this.src='https://placehold.co/3840x2715/ffffff/cccccc?text=Planta+Indispon%C3%ADvel';">
+        </div>
+        <div id="map-tooltip" role="status" aria-live="polite"></div>
+      </div>
+    </main>
+  </div>
+
+  <div id="details-modal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-content bg-white w-11/12 max-w-md mx-auto rounded-lg shadow-xl p-6 relative" role="dialog" aria-modal="true">
+      <button class="close-modal-btn absolute top-4 right-4 text-gray-500 hover:text-gray-800" aria-label="Fechar">✕</button>
+      <h2 id="modal-title" class="text-2xl font-bold mb-4"></h2>
+      <div class="space-y-3 text-gray-700">
+        <p><strong>Departamento:</strong> <span id="modal-department"></span></p>
+        <p><strong>SELB:</strong> <span id="modal-selb" class="font-mono bg-gray-100 px-2 py-1 rounded"></span></p>
+        <p><strong>Endereço IP:</strong> <span id="modal-ip" class="font-mono bg-gray-100 px-2 py-1 rounded"></span></p>
+        <p><strong>Observações:</strong> <div id="modal-observations" class="bg-gray-100 px-2 py-1 rounded mt-1 p-2 text-sm whitespace-pre-wrap"></div></p>
+      </div>
+      <div class="mt-6 grid grid-cols-2 gap-3">
+        <a id="modal-link" href="#" target="_blank" rel="noopener noreferrer" class="col-span-1 text-center px-4 py-3 bg-[#E07A5F] text-white rounded-lg hover:bg-opacity-90 transition-colors">Acessar IP</a>
+        <button id="edit-printer-btn" class="col-span-1 px-4 py-3 bg-[#3D405B] text-white rounded-lg hover:bg-opacity-90 transition-colors">Editar</button>
+        <button id="reposition-printer-btn" class="col-span-1 px-4 py-3 bg-yellow-500 text-white rounded-lg hover:bg-opacity-90 transition-colors">Reposicionar</button>
+        <button id="delete-printer-btn" class="col-span-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">Remover</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="add-modal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-content bg-white w-11/12 max-w-md mx-auto rounded-lg shadow-xl p-6 relative" role="dialog" aria-modal="true">
+      <button class="close-modal-btn absolute top-4 right-4 text-gray-500 hover:text-gray-800" aria-label="Fechar">✕</button>
+      <h2 id="add-modal-title" class="text-2xl font-bold mb-4">Adicionar Nova Impressora</h2>
+      <form id="add-printer-form" class="space-y-4">
+        <input name="name" placeholder="Nome (Ex: Recepção P&B)" required class="w-full p-3 border rounded focus:ring-2 focus:ring-[#3D405B]">
+        <input name="department" placeholder="Departamento" required class="w-full p-3 border rounded focus:ring-2 focus:ring-[#3D405B]">
+        <input name="selb" placeholder="SELB (Ex: 98765)" required class="w-full p-3 border rounded focus:ring-2 focus:ring-[#3D405B]">
+        <input name="ip" placeholder="Endereço IP (Ex: 192.168.1.25)" required class="w-full p-3 border rounded focus:ring-2 focus:ring-[#3D405B]">
+        <select name="floor" required class="w-full p-3 border rounded focus:ring-2 focus:ring-[#3D405B]">
+          <option value="1">Andar 1</option>
+          <option value="2">Andar 2</option>
+        </select>
+        <textarea name="observations" placeholder="Observações sobre a impressora" class="w-full p-3 border rounded focus:ring-2 focus:ring-[#3D405B] h-20"></textarea>
+        <div class="flex items-center justify-between gap-2">
+          <button type="submit" id="add-submit-btn" class="flex-1 px-6 py-3 bg-[#3D405B] text-white rounded-lg hover:bg-opacity-90 transition-colors">Salvar Impressora</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast-notification" class="toast" role="status" aria-live="polite"></div>
+
+<!-- Carrega os dados das impressoras primeiro -->
+  <script src="printers-data.js"></script>
+  <!-- Carrega o script principal para admin -->
+  <script src="app-admin.js"></script>
+</body>
+</html>

@@ -1,3 +1,4 @@
+
 document.addEventListener('DOMContentLoaded', () => {
   // -------------------- CONFIG --------------------
   // Se true: sempre carrega o array hardcoded do código (ignora localStorage).
@@ -40,9 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function showToast(msg){ toastEl.textContent = msg; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'),3000); }
 
   function savePrinters(){
-    // Se estamos forçando o hardcoded, não salvamos (para que ao recarregar volte ao que está no código)
     if (FORCE_HARDCODED) {
-      // removemos o key antigo para evitar confusão
       try { localStorage.removeItem(LOCALSTORAGE_KEY); } catch(e){ /* ignore */ }
       return;
     }
@@ -51,15 +50,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function loadPrinters(){
     if (FORCE_HARDCODED) {
-      // sempre usa a lista hardcoded
       printerData = (Array.isArray(initialPrinters) ? initialPrinters.slice() : []).concat(Array.isArray(initialPrinters2floor) ? initialPrinters2floor.slice() : []);
-      // remove qualquer dado local antigo para evitar confusão futura
       try { localStorage.removeItem(LOCALSTORAGE_KEY); } catch(e){ /* ignore */ }
+      printerData = printerData.map(p => ({...p, model: p.model || 'Zebra'}));
       renderAllPrinters();
       return;
     }
-
-    // comportamento padrão: tenta carregar do localStorage; se não existir, usa os hardcoded
     try {
       const s = localStorage.getItem(LOCALSTORAGE_KEY);
       if (s) {
@@ -71,6 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
       console.warn('Erro ao ler localStorage, usando hardcoded', e);
       printerData = (Array.isArray(initialPrinters) ? initialPrinters.slice() : []).concat(Array.isArray(initialPrinters2floor) ? initialPrinters2floor.slice() : []);
     }
+    printerData = printerData.map(p => ({...p, model: p.model || 'Zebra'}));
     renderAllPrinters();
   }
 
@@ -85,10 +82,23 @@ document.addEventListener('DOMContentLoaded', () => {
     point.style.top = printer.pos.top;
     point.style.left = printer.pos.left;
     point.style.setProperty('--point-color', '#3b82f6');
-    // dataset -> atributo data-printer-selb
     point.dataset.printerSelb = printer.selb;
-    point.setAttribute('aria-label', `Impressora ${printer.name}, SELB ${printer.selb}, Andar ${printer.floor}`);
-    point.innerHTML = `<svg class="printer-point-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>`;
+    point.setAttribute('aria-label', `Impressora ${printer.name}, SELB ${printer.selb}, Andar ${printer.floor}, Modelo ${printer.model}`);
+    
+    // Selecionar ícone com base no modelo
+    const isZebra = printer.model === 'Zebra';
+    const isEpson = printer.model === 'Epson';
+    let iconSvg;
+
+    if (isZebra) {
+      iconSvg = `<img src="zebraicone.png" alt="Zebra" class="printer-point-icon" style="width:14px; height:14px; filter: brightness(0) invert(1);" onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyBjbGFzcz0icHJpbnRlci1wb2ludC1pY29uIiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgdmlld0JveD0iMCAwIDI0IDI0IiBhcmlhLWhpZGRlbj0idHJ1ZSI+PHBhdGggc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjIiIGQ9Ik0xNyAxN2gyYTIgMiAwIDAwMi0ydi00YTIgMiAwIDAwLTItMkg1YTIgMiAwIDAwLTIgMnY0YTIgMiAwIDAwMiAyaDJtMiA0aDZhMiAyIDAgMDAyLTJ2LTRhMiAyIDAgMDAtMi0ySDlhMiAyIDAgMDAtMiAydjRhMiAyIDAgMDAyIDJ6bTgtMTJWNWEyIDIgMCAwMC0yLTJIOWEyIDIgMCAwMC0yIDJ2NGgxMHoiLz48L3N2Zz4=';"/>`;
+    } else if (isEpson) {
+      iconSvg = `<svg class="printer-point-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>`;
+    } else {
+      iconSvg = `<svg class="printer-point-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>`;
+    }
+
+    point.innerHTML = iconSvg;
 
     point.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -108,7 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
     point.addEventListener('mouseenter', (e) => {
       const selb = e.currentTarget.dataset.printerSelb;
       const current = printerData.find(p => p.selb === selb) || printer;
-      tooltip.innerHTML = `<strong>${current.name}</strong><br>SELB: ${current.selb} (Andar ${current.floor})`;
+      tooltip.innerHTML = `<strong>${current.name}</strong><br>SELB: ${current.selb} (Andar ${current.floor})<br>Modelo: ${current.model}`;
       const pointRect = e.currentTarget.getBoundingClientRect();
       const containerRect = mapContainer.getBoundingClientRect();
       tooltip.style.top = `${pointRect.top - containerRect.top}px`;
@@ -131,12 +141,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateMapImage() {
-    // Se quiser bustar cache da planta no dev, acrescente ?v=1 e mude quando atualizar
     if (currentFloor === 1) { mapImage.src = 'plantanto.jpg'; } else if (currentFloor === 2) { mapImage.src = 'plantanto2.jpg'; }
     mapImage.onerror = function() { this.onerror = null; this.src = 'https://placehold.co/3840x2715/ffffff/cccccc?text=Planta+Indispon%C3%ADvel'; };
   }
 
-  // CORREÇÃO: remove transientLabel antes de abrir o modal (evita sobrepor)
   function showDetailsModal(printer){
     if (transientLabel) { transientLabel.remove(); transientLabel = null; }
 
@@ -144,6 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modal-department').textContent = printer.department;
     document.getElementById('modal-selb').textContent = printer.selb;
     document.getElementById('modal-ip').textContent = printer.ip;
+    document.getElementById('modal-model').textContent = printer.model;
     document.getElementById('modal-observations').textContent = printer.observations || 'Nenhuma observação.';
     printerToDeleteSelb = printer.selb;
 
@@ -191,7 +200,6 @@ document.addEventListener('DOMContentLoaded', () => {
     delete addModal.dataset.editingSelb;
     addModalTitle.textContent = 'Adicionar Nova Impressora';
     addSubmitBtn.textContent = 'Salvar Impressora';
-    addPrinterForm.querySelector('[name="floor"]').value = String(currentFloor);
     addModal.classList.remove('hidden');
     addModal.setAttribute('aria-hidden','false');
     toggleAddMode();
@@ -204,15 +212,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const department = (formData.get('department') || '').trim();
     const selb = (formData.get('selb') || '').trim();
     const ip = (formData.get('ip') || '').trim();
+    const model = (formData.get('model') || '').trim();
     const observations = (formData.get('observations') || '').trim();
-    const floor = parseInt(formData.get('floor') || currentFloor, 10);
 
-    if (!name || !department || !selb || !ip) {
+    if (!name || !department || !selb || !ip || !model) {
       showToast('Preencha todos os campos obrigatórios.');
       return;
     }
 
     const editingSelb = addModal.dataset.editingSelb;
+    const floor = editingSelb ? (printerData.find(p => p.selb === editingSelb)?.floor ?? currentFloor) : currentFloor;
+
     if (editingSelb) {
       const idx = printerData.findIndex(p => p.selb === editingSelb);
       if (idx === -1) { showToast('Erro: impressora não encontrada.'); addModal.classList.add('hidden'); return; }
@@ -224,6 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
       printerData[idx].ip = ip;
       printerData[idx].observations = observations;
       printerData[idx].floor = floor;
+      printerData[idx].model = model;
       printerData[idx].pos = newPrinterCoords || printerData[idx].pos;
 
       savePrinters();
@@ -237,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (printerData.some(p => p.selb === selb)) { showToast('Erro: já existe uma impressora com esse SELB.'); return; }
 
-    const newPrinter = { name, department, selb, ip, observations, floor, pos: newPrinterCoords };
+    const newPrinter = { name, department, selb, ip, observations, floor, pos: newPrinterCoords, model };
     printerData.push(newPrinter);
     savePrinters();
     renderAllPrinters();
@@ -278,7 +289,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const term = searchInput.value.toLowerCase().trim();
     document.querySelectorAll('.printer-point').forEach(p=>p.classList.remove('highlighted'));
     if (!term) { searchResultsPanel.style.display = 'none'; searchResultsPanel.setAttribute('aria-hidden','true'); return; }
-    const results = printerData.filter(p => (p.name.toLowerCase().includes(term) || (p.selb || '').toLowerCase().includes(term)));
+    const results = printerData.filter(p => (p.name.toLowerCase().includes(term) || (p.selb || '').toLowerCase().includes(term) || (p.model || '').toLowerCase().includes(term)));
     searchResultsPanel.innerHTML = '';
     searchResultsPanel.setAttribute('aria-hidden','false');
     if (!results.length) {
@@ -287,7 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
         results.forEach((r, idx) => {
             const d = document.createElement('div');
             d.className = 'result-item p-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50';
-            d.innerHTML = `<div class="font-semibold">${r.name}</div><div class="text-sm text-gray-500">SELB: ${r.selb} (Andar ${r.floor})</div>`;
+            d.innerHTML = `<div class="font-semibold">${r.name}</div><div class="text-sm text-gray-500">SELB: ${r.selb} (Andar ${r.floor}) - Modelo: ${r.model}</div>`;
             d.tabIndex = 0;
             d.setAttribute('role','option');
             d.addEventListener('click', (ev) => {
@@ -382,8 +393,8 @@ document.addEventListener('DOMContentLoaded', () => {
     addPrinterForm.querySelector('[name="department"]').value = p.department;
     addPrinterForm.querySelector('[name="selb"]').value = p.selb;
     addPrinterForm.querySelector('[name="ip"]').value = p.ip;
+    addPrinterForm.querySelector('[name="model"]').value = p.model || 'Zebra';
     addPrinterForm.querySelector('[name="observations"]').value = p.observations || '';
-    addPrinterForm.querySelector('[name="floor"]').value = String(p.floor || currentFloor);
     newPrinterCoords = p.pos || newPrinterCoords;
 
     addModal.dataset.editingSelb = p.selb;

@@ -3,9 +3,54 @@ document.addEventListener('DOMContentLoaded', () => {
   // -------------------- CONFIG --------------------
   // Se true: sempre carrega o array hardcoded do código (ignora localStorage).
   // Troque para false se quiser permitir persistência entre reloads.
-  const FORCE_HARDCODED = true;
+  const FORCE_HARDCODED = false;
   const LOCALSTORAGE_KEY = 'interactiveMapPrinters';
   // -------------------------------------------------
+
+const API_BASE = 'http://localhost:3001/api'; // ajuste host/porta se necessário
+const DEFAULT_UNIT = 'Hemes Pardini-NTO';
+
+async function apiFetchPrinters(unit = DEFAULT_UNIT, floor = null) {
+  const qs = new URLSearchParams();
+  if (unit) qs.set('unit', unit);
+  if (floor !== null && floor !== undefined) qs.set('floor', floor);
+  const res = await fetch(`${API_BASE}/printers?${qs.toString()}`);
+  if (!res.ok) throw new Error('Erro ao buscar impressoras');
+  return res.json();
+}
+async function apiCreateOrUpsertPrinter(printer, unit = DEFAULT_UNIT) {
+  const res = await fetch(`${API_BASE}/printers`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ unit, printer })
+  });
+  if (!res.ok) throw new Error('Erro ao salvar impressora');
+  return res.json();
+}
+async function apiUpdatePrinterBySelb(selb, printer) {
+  const res = await fetch(`${API_BASE}/printers/${encodeURIComponent(selb)}`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ printer })
+  });
+  if (!res.ok) throw new Error('Erro ao atualizar');
+  return res.json();
+}
+async function apiPatchPrinterPos(selb, pos) {
+  const res = await fetch(`${API_BASE}/printers/${encodeURIComponent(selb)}/pos`, {
+    method: 'PATCH',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ pos })
+  });
+  if (!res.ok) throw new Error('Erro ao atualizar posição');
+  return res.json();
+}
+async function apiDeletePrinter(selb) {
+  const res = await fetch(`${API_BASE}/printers/${encodeURIComponent(selb)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Erro ao deletar impressora');
+  return res.json();
+}
+
 
   const mapContainer = document.getElementById('map-container');
   const mapInner = document.getElementById('map-inner');
@@ -40,36 +85,65 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function showToast(msg){ toastEl.textContent = msg; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'),3000); }
 
-  function savePrinters(){
-    if (FORCE_HARDCODED) {
-      try { localStorage.removeItem(LOCALSTORAGE_KEY); } catch(e){ /* ignore */ }
-      return;
-    }
-    try { localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(printerData)); } catch(e){ console.warn('Erro ao gravar localStorage', e); }
-  }
 
-  function loadPrinters(){
-    if (FORCE_HARDCODED) {
-      printerData = (Array.isArray(initialPrinters) ? initialPrinters.slice() : []).concat(Array.isArray(initialPrinters2floor) ? initialPrinters2floor.slice() : []);
-      try { localStorage.removeItem(LOCALSTORAGE_KEY); } catch(e){ /* ignore */ }
-      printerData = printerData.map(p => ({...p, model: p.model || 'Zebra'}));
+
+ async function loadPrinters() {
+  try {
+    // já que você quer apenas Neon, não usamos dados locais aqui
+    // (FORCE_HARDCODED deve estar false)
+    const data = await apiFetchPrinters(DEFAULT_UNIT, null);
+
+    // se veio algo vazio, mostramos mensagem e continuamos com lista vazia
+    if (!Array.isArray(data) || data.length === 0) {
+      console.warn('API retornou lista vazia.');
+      showToast('Nenhuma impressora encontrada no servidor.');
+      printerData = [];
       renderAllPrinters();
       return;
     }
-    try {
-      const s = localStorage.getItem(LOCALSTORAGE_KEY);
-      if (s) {
-        printerData = JSON.parse(s);
-      } else {
-        printerData = (Array.isArray(initialPrinters) ? initialPrinters.slice() : []).concat(Array.isArray(initialPrinters2floor) ? initialPrinters2floor.slice() : []);
+
+    // Normaliza registros vindos do servidor
+    printerData = data.map(r => {
+      // pos pode chegar como objeto ou string JSON; trata os dois casos
+      let pos = { top: '50%', left: '50%' };
+      try {
+        if (r.pos) {
+          if (typeof r.pos === 'string') pos = JSON.parse(r.pos);
+          else if (typeof r.pos === 'object') pos = r.pos;
+        }
+      } catch (e) {
+        console.warn('Erro ao parsear pos para', r, e);
       }
-    } catch(e) {
-      console.warn('Erro ao ler localStorage, usando hardcoded', e);
-      printerData = (Array.isArray(initialPrinters) ? initialPrinters.slice() : []).concat(Array.isArray(initialPrinters2floor) ? initialPrinters2floor.slice() : []);
-    }
-    printerData = printerData.map(p => ({...p, model: p.model || 'Zebra'}));
+
+      return {
+        name: r.name,
+        department: r.department,
+        selb: r.selb,
+        ip: r.ip,
+        observations: r.observations,
+        floor: Number.isFinite(Number(r.floor)) ? Number(r.floor) : (r.floor ? Number(r.floor) : 1),
+        pos,
+        model: r.model || 'Zebra'
+      };
+    });
+
+    // sincroniza select do andar
+    const selectedFloor = parseInt(floorSelect.value, 10) || currentFloor || 1;
+    currentFloor = selectedFloor;
+    floorSelect.value = String(currentFloor);
+
+    renderAllPrinters();
+    showToast('Impressoras carregadas do servidor.');
+  } catch (err) {
+    console.error('loadPrinters error:', err);
+    // Não tentamos usar as variáveis locais (já removidas) — apenas informamos e limpamos a lista
+    showToast('Erro ao conectar com o servidor. Verifique se a API está rodando.');
+    printerData = [];
     renderAllPrinters();
   }
+}
+
+
 
   function debounce(fn, delay) {
     let t;
@@ -173,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isAddMode) { showToast('Clique no mapa para posicionar a nova impressora.'); }
   }
 
-  mapContainer.addEventListener('click', (event) => {
+  mapContainer.addEventListener('click', async(event) => {
     if (event.target.closest('.printer-point')) return;
     const rect = mapContainer.getBoundingClientRect();
     const coords = { 
@@ -182,17 +256,23 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     if (isAddMode && repositionTargetSelb) {
-      const p = printerData.find(p => p.selb === repositionTargetSelb);
-      if (p) {
-        p.pos = coords;
-        savePrinters();
-        renderAllPrinters();
-        showToast('Posição da impressora atualizada.');
-      }
-      repositionTargetSelb = null;
-      toggleAddMode();
-      return;
+  const p = printerData.find(p => p.selb === repositionTargetSelb);
+  if (p) {
+    try {
+      await apiPatchPrinterPos(repositionTargetSelb, coords);
+      p.pos = coords;
+      renderAllPrinters();
+      showToast('Posição da impressora atualizada.');
+    } catch (err) {
+      console.error('Erro ao atualizar pos', err);
+      showToast('Erro ao atualizar posição no servidor.');
     }
+  }
+  repositionTargetSelb = null;
+  toggleAddMode();
+  return;
+}
+
 
     if (!isAddMode) return;
     newPrinterCoords = coords;
@@ -205,56 +285,49 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleAddMode();
   });
 
-  addPrinterForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const formData = new FormData(addPrinterForm);
-    const name = (formData.get('name') || '').trim();
-    const department = (formData.get('department') || '').trim();
-    const selb = (formData.get('selb') || '').trim();
-    const ip = (formData.get('ip') || '').trim();
-    const model = (formData.get('model') || '').trim();
-    const observations = (formData.get('observations') || '').trim();
+addPrinterForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const formData = new FormData(addPrinterForm);
+  const name = (formData.get('name') || '').trim();
+  const department = (formData.get('department') || '').trim();
+  const selb = (formData.get('selb') || '').trim();
+  const ip = (formData.get('ip') || '').trim();
+  const model = (formData.get('model') || '').trim();
+  const observations = (formData.get('observations') || '').trim();
 
-    if (!name || !department || !selb || !ip || !model) {
-      showToast('Preencha todos os campos obrigatórios.');
-      return;
-    }
+  if (!name || !department || !selb || !ip || !model) {
+    showToast('Preencha todos os campos obrigatórios.');
+    return;
+  }
 
-    const editingSelb = addModal.dataset.editingSelb;
-    const floor = editingSelb ? (printerData.find(p => p.selb === editingSelb)?.floor ?? currentFloor) : currentFloor;
+  const editingSelb = addModal.dataset.editingSelb;
+  const floor = editingSelb ? (printerData.find(p => p.selb === editingSelb)?.floor ?? currentFloor) : currentFloor;
 
+  const newPrinter = { name, department, selb, ip, observations, floor, pos: newPrinterCoords || { top:'50%', left:'50%' }, model };
+
+  try {
     if (editingSelb) {
+      // atualizar no Neon
+      await apiUpdatePrinterBySelb(editingSelb, newPrinter);
+      // atualizar local state
       const idx = printerData.findIndex(p => p.selb === editingSelb);
-      if (idx === -1) { showToast('Erro: impressora não encontrada.'); addModal.classList.add('hidden'); return; }
-      if (selb !== editingSelb && printerData.some(p => p.selb === selb)) { showToast('Erro: já existe outra impressora com esse SELB.'); return; }
-
-      printerData[idx].name = name;
-      printerData[idx].department = department;
-      printerData[idx].selb = selb;
-      printerData[idx].ip = ip;
-      printerData[idx].observations = observations;
-      printerData[idx].floor = floor;
-      printerData[idx].model = model;
-      printerData[idx].pos = newPrinterCoords || printerData[idx].pos;
-
-      savePrinters();
-      renderAllPrinters();
-      addModal.classList.add('hidden');
-      detailsModal.classList.add('hidden');
-      delete addModal.dataset.editingSelb;
+      if (idx !== -1) printerData[idx] = newPrinter;
       showToast('Impressora atualizada com sucesso.');
-      return;
+    } else {
+      // criar/upsert no Neon
+      await apiCreateOrUpsertPrinter(newPrinter);
+      printerData.push(newPrinter);
+      showToast('Impressora adicionada com sucesso.');
     }
-
-    if (printerData.some(p => p.selb === selb)) { showToast('Erro: já existe uma impressora com esse SELB.'); return; }
-
-    const newPrinter = { name, department, selb, ip, observations, floor, pos: newPrinterCoords, model };
-    printerData.push(newPrinter);
-    savePrinters();
     renderAllPrinters();
     addModal.classList.add('hidden');
-    showToast('Impressora adicionada com sucesso.');
-  });
+    detailsModal.classList.add('hidden');
+    delete addModal.dataset.editingSelb;
+  } catch (err) {
+    console.error('Erro salvar impressora', err);
+    showToast('Erro ao salvar impressora no servidor.');
+  }
+});
 
   addHitbox.addEventListener('click', (e)=>{ e.stopPropagation(); toggleAddMode(); });
   
@@ -377,11 +450,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  deletePrinterBtn.addEventListener('click', () => {
-    printerData = printerData.filter(p => p.selb !== printerToDeleteSelb);
-    savePrinters(); renderAllPrinters(); detailsModal.classList.add('hidden'); detailsModal.setAttribute('aria-hidden','true');
+ deletePrinterBtn.addEventListener('click', async () => {
+  const selb = printerToDeleteSelb;
+  try {
+    await apiDeletePrinter(selb);
+    printerData = printerData.filter(p => p.selb !== selb);
+    renderAllPrinters();
+    detailsModal.classList.add('hidden'); detailsModal.setAttribute('aria-hidden','true');
     showToast('Impressora removida com sucesso!');
-  });
+  } catch (err) {
+    console.error('Erro deletar', err);
+    showToast('Erro ao remover impressora no servidor.');
+  }
+});
+
 
   editPrinterBtn.addEventListener('click', () => {
     const selb = printerToDeleteSelb;
